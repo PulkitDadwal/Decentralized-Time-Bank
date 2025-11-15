@@ -13,6 +13,22 @@ export const timeEscrowAbi = [
     ], "outputs": [{"name":"escrowId","type":"uint256"}] },
   { "type": "function", "name": "confirm", "stateMutability": "nonpayable", "inputs": [{"name":"escrowId","type":"uint256"}], "outputs": [] },
   { "type": "function", "name": "cancel", "stateMutability": "nonpayable", "inputs": [{"name":"escrowId","type":"uint256"}], "outputs": [] },
+  { "type": "function", "name": "getEscrow", "stateMutability": "view", "inputs": [{"name":"escrowId","type":"uint256"}], "outputs": [
+      {"name":"requester","type":"address"},
+      {"name":"provider","type":"address"},
+      {"name":"amount","type":"uint256"},
+      {"name":"requesterConfirmed","type":"bool"},
+      {"name":"providerConfirmed","type":"bool"},
+      {"name":"active","type":"bool"}
+    ] },
+  { "type": "function", "name": "escrows", "stateMutability": "view", "inputs": [{"name":"","type":"uint256"}], "outputs": [
+      {"name":"requester","type":"address"},
+      {"name":"provider","type":"address"},
+      {"name":"amount","type":"uint256"},
+      {"name":"requesterConfirmed","type":"bool"},
+      {"name":"providerConfirmed","type":"bool"},
+      {"name":"active","type":"bool"}
+    ] },
   { "type": "event", "name": "EscrowCreated", "inputs": [
       {"name":"escrowId","type":"uint256","indexed":true},
       {"name":"requester","type":"address","indexed":true},

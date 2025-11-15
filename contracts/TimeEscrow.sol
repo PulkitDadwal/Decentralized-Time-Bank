@@ -88,6 +88,19 @@ contract TimeEscrow is ReentrancyGuard {
         require(timeToken.transfer(e.provider, e.amount), "Payout failed");
         emit Released(escrowId, e.provider, e.amount);
     }
+
+    /// @notice Get escrow details (view function for frontend)
+    function getEscrow(uint256 escrowId) external view returns (
+        address requester,
+        address provider,
+        uint256 amount,
+        bool requesterConfirmed,
+        bool providerConfirmed,
+        bool active
+    ) {
+        Escrow storage e = escrows[escrowId];
+        return (e.requester, e.provider, e.amount, e.requesterConfirmed, e.providerConfirmed, e.active);
+    }
 }
 
 
