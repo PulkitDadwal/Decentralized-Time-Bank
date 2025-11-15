@@ -119,6 +119,36 @@ VITE_BACKEND_URL=http://localhost:4000
 
 **Note:** Contract addresses are optional if you're just testing the frontend/backend features.
 
+### Root Directory Configuration (For Contract Deployment - Optional)
+
+If you want to deploy smart contracts yourself, create a `.env` file in the **project root** (not in backend/ or frontend/):
+
+**Windows (PowerShell):**
+```powershell
+cd ..  # Go back to project root
+New-Item -Path .env -ItemType File
+notepad .env
+```
+
+**Mac/Linux:**
+```bash
+cd ..  # Go back to project root
+touch .env
+nano .env
+```
+
+**Copy this content into the root `.env` file:**
+```env
+# Sepolia Testnet RPC URL
+SEPOLIA_RPC_URL=https://rpc.sepolia.org
+
+# Your wallet's private key (for deploying contracts)
+# ⚠️ WARNING: Only use a test wallet, never your main wallet!
+PRIVATE_KEY=0x_your_private_key_here
+```
+
+**Note:** This `.env` file is only needed if you're deploying contracts. For testing wallet features with pre-deployed contracts, you don't need this file.
+
 ## Step 4: Start MongoDB
 
 ### If using Local MongoDB:
@@ -276,6 +306,17 @@ Decentralized-Time-Bank/
 - ✅ **Video Calls**: WebRTC video calling feature
 - ✅ **Escrow**: Blockchain-based escrow system for service transactions
 - ✅ **Analytics**: Dashboard with statistics and leaderboards
+
+## Testing Wallet Features
+
+To test blockchain transactions (escrow, tokens, etc.), see **[WALLET_TESTING_GUIDE.md](./WALLET_TESTING_GUIDE.md)**
+
+This guide covers:
+- MetaMask setup with Sepolia testnet
+- Getting testnet ETH
+- Deploying smart contracts
+- Minting TTK tokens
+- Testing all transaction features
 
 ## Important Notes
 

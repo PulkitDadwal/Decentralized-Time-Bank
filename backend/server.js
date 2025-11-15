@@ -405,36 +405,47 @@ io.on("connection", (socket) => {
 
   // Track online status
   socket.on("user-online", (userAddress) => {
-    if (!onlineUsers.has(userAddress)) {
-      onlineUsers.set(userAddress, { socketIds: new Set(), lastSeen: Date.now() });
-    }
-    onlineUsers.get(userAddress).socketIds.add(socket.id);
-    onlineUsers.get(userAddress).lastSeen = Date.now();
-    socket.data.userAddress = userAddress;
+    if (!userAddress) return;
     
-    // Notify all rooms this user is in
+    const normalizedAddress = userAddress.toLowerCase();
+    if (!onlineUsers.has(normalizedAddress)) {
+      onlineUsers.set(normalizedAddress, { socketIds: new Set(), lastSeen: Date.now() });
+    }
+    onlineUsers.get(normalizedAddress).socketIds.add(socket.id);
+    onlineUsers.get(normalizedAddress).lastSeen = Date.now();
+    socket.data.userAddress = normalizedAddress;
+    
+    // Notify all rooms this user is in that they're online
     socket.rooms.forEach(roomId => {
       if (roomId !== socket.id) {
-        socket.to(roomId).emit("user-status", { userAddress, status: "online" });
+        io.to(roomId).emit("user-status", { userAddress: normalizedAddress, status: "online" });
       }
     });
+    
+    console.log(`[Status] User ${normalizedAddress} is now online (socket: ${socket.id})`);
   });
 
   // Join a chat room (roomId is typically: user1_user2 sorted alphabetically)
   socket.on("join-room", async (roomId, userAddress) => {
+    if (!roomId || !userAddress) {
+      console.warn("[Chat] Invalid join-room request:", { roomId, userAddress });
+      return;
+    }
+    
+    const normalizedAddress = userAddress.toLowerCase();
     socket.join(roomId);
     socket.data.roomId = roomId;
-    socket.data.userAddress = userAddress;
+    socket.data.userAddress = normalizedAddress;
     
     // Track online status
-    if (!onlineUsers.has(userAddress)) {
-      onlineUsers.set(userAddress, { socketIds: new Set(), lastSeen: Date.now() });
+    if (!onlineUsers.has(normalizedAddress)) {
+      onlineUsers.set(normalizedAddress, { socketIds: new Set(), lastSeen: Date.now() });
     }
-    onlineUsers.get(userAddress).socketIds.add(socket.id);
-    onlineUsers.get(userAddress).lastSeen = Date.now();
+    onlineUsers.get(normalizedAddress).socketIds.add(socket.id);
+    onlineUsers.get(normalizedAddress).lastSeen = Date.now();
     
     // Notify other user in room that this user is online
-    socket.to(roomId).emit("user-status", { userAddress, status: "online" });
+    io.to(roomId).emit("user-status", { userAddress: normalizedAddress, status: "online" });
     
     // Load messages from MongoDB (fast and reliable)
     const dbMessages = await loadChatFromDB(roomId);
@@ -453,12 +464,18 @@ io.on("connection", (socket) => {
     
     // Send online status of other user if they're online
     const [user1, user2] = roomId.split("_");
-    const otherUser = user1.toLowerCase() === userAddress.toLowerCase() ? user2 : user1;
-    if (onlineUsers.has(otherUser) && onlineUsers.get(otherUser).socketIds.size > 0) {
-      socket.emit("user-status", { userAddress: otherUser, status: "online" });
+    if (user1 && user2) {
+      const otherUser = user1.toLowerCase() === normalizedAddress ? user2.toLowerCase() : user1.toLowerCase();
+      if (onlineUsers.has(otherUser) && onlineUsers.get(otherUser).socketIds.size > 0) {
+        socket.emit("user-status", { userAddress: otherUser, status: "online" });
+        console.log(`[Status] Notified ${normalizedAddress} that ${otherUser} is online`);
+      } else {
+        socket.emit("user-status", { userAddress: otherUser, status: "offline" });
+        console.log(`[Status] Notified ${normalizedAddress} that ${otherUser} is offline`);
+      }
     }
     
-    console.log(`User ${userAddress} joined room ${roomId}`);
+    console.log(`[Chat] User ${normalizedAddress} joined room ${roomId} (socket: ${socket.id})`);
   });
 
   // Handle typing indicators
@@ -491,10 +508,12 @@ io.on("connection", (socket) => {
       return;
     }
     
+    const normalizedSender = sender.toLowerCase();
+    
     // Stop typing indicator
     if (typingUsers.has(roomId)) {
-      typingUsers.get(roomId).delete(sender);
-      socket.to(roomId).emit("typing", { userAddress: sender, typing: false });
+      typingUsers.get(roomId).delete(normalizedSender);
+      io.to(roomId).emit("typing", { userAddress: normalizedSender, typing: false });
     }
     
     if (!chatRoomsCache.has(roomId)) {
@@ -504,7 +523,7 @@ io.on("connection", (socket) => {
     const messageObj = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       message,
-      sender,
+      sender: normalizedSender,
       timestamp: timestamp || new Date().toISOString(),
       type, // 'text', 'video-call', 'system'
     };
@@ -513,8 +532,8 @@ io.on("connection", (socket) => {
     messages.push(messageObj);
     chatRoomsCache.set(roomId, messages);
     
-    // INSTANT delivery via socket.io (real-time)
-    console.log(`[Chat] Broadcasting message to room ${roomId} from ${sender}`);
+    // INSTANT delivery via socket.io (real-time) - broadcast to ALL users in room including sender
+    console.log(`[Chat] Broadcasting message to room ${roomId} from ${normalizedSender}`);
     io.to(roomId).emit("chat-message", messageObj);
     
     // Save to MongoDB in background (fast and reliable, doesn't block delivery)
@@ -588,7 +607,13 @@ io.on("connection", (socket) => {
   // Video call status
   socket.on("video-call-status", (data) => {
     const { roomId, status, sender } = data; // status: 'calling', 'ringing', 'answered', 'ended'
-    socket.to(roomId).emit("video-call-status", { status, sender });
+    if (!roomId || !status || !sender) {
+      console.warn("[VideoCall] Invalid video-call-status data:", data);
+      return;
+    }
+    console.log(`[VideoCall] Status update: ${status} in room ${roomId} from ${sender}`);
+    // Broadcast to ALL users in room (including sender for consistency)
+    io.to(roomId).emit("video-call-status", { status, sender: sender.toLowerCase() });
   });
 
   // Disconnect
@@ -601,10 +626,17 @@ io.on("connection", (socket) => {
       
       // If no more sockets for this user, mark as offline
       if (onlineUsers.get(userAddress).socketIds.size === 0) {
-        // Notify all rooms this user was in
+        // Notify all rooms this user was in that they're offline
         if (roomId) {
-          socket.to(roomId).emit("user-status", { userAddress, status: "offline" });
+          io.to(roomId).emit("user-status", { userAddress, status: "offline" });
+          console.log(`[Status] User ${userAddress} is now offline (no active sockets)`);
         }
+        // Also check all rooms this user might be in
+        socket.rooms.forEach(room => {
+          if (room !== socket.id) {
+            io.to(room).emit("user-status", { userAddress, status: "offline" });
+          }
+        });
       }
     }
     
@@ -612,11 +644,11 @@ io.on("connection", (socket) => {
     if (roomId && typingUsers.has(roomId)) {
       if (userAddress) {
         typingUsers.get(roomId).delete(userAddress);
-        socket.to(roomId).emit("typing", { userAddress, typing: false });
+        io.to(roomId).emit("typing", { userAddress, typing: false });
       }
     }
     
-    console.log(`User disconnected: ${socket.id}`);
+    console.log(`[Disconnect] User disconnected: ${socket.id} (user: ${userAddress || 'unknown'})`);
   });
 });
 

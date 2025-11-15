@@ -31,56 +31,65 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
   useEffect(() => {
     if (!socket || !address || !roomId) return
     
+    const normalizedOtherUser = otherUser.toLowerCase()
+    const normalizedAddress = address.toLowerCase()
+    
     const joinRoom = () => {
+      if (!socket.connected) {
+        console.log('[Chat] Socket not connected, waiting...')
+        return
+      }
       // Notify server that user is online
-      socket.emit('user-online', address)
+      socket.emit('user-online', normalizedAddress)
       // Join room
-      socket.emit('join-room', roomId, address)
+      socket.emit('join-room', roomId, normalizedAddress)
+      console.log(`[Chat] Joined room ${roomId} as ${normalizedAddress}`)
     }
     
-    // Join immediately
-    joinRoom()
+    // Join immediately if connected
+    if (socket.connected) {
+      joinRoom()
+    }
     
-    // Rejoin on reconnect
+    // Rejoin on connect/reconnect
     socket.on('connect', joinRoom)
 
     // Listen for chat history
     const handleHistory = (history: ChatMessage[]) => {
-      // Merge with existing messages to avoid losing real-time messages
-      setMessages((prev) => {
-        const merged = [...prev]
-        history.forEach(msg => {
-          if (!merged.some(m => m.id === msg.id)) {
-            merged.push(msg)
-          }
-        })
-        // Sort by timestamp to ensure correct order
-        return merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      })
+      console.log(`[Chat] Received ${history.length} messages from history`)
+      // Replace messages with history (fresh load)
+      setMessages(history.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()))
     }
 
-    // Listen for new messages
+    // Listen for new messages (real-time)
     const handleMessage = (message: ChatMessage) => {
+      console.log(`[Chat] Received real-time message:`, message)
       setMessages((prev) => {
-        // Prevent duplicate messages
+        // Prevent duplicate messages by ID
         if (prev.some(m => m.id === message.id)) {
+          console.log(`[Chat] Duplicate message detected, skipping: ${message.id}`)
           return prev
         }
-        return [...prev, message]
+        // Add new message and sort by timestamp
+        const updated = [...prev, message].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        console.log(`[Chat] Message added, total messages: ${updated.length}`)
+        return updated
       })
     }
 
     // Listen for typing indicators
     const handleTyping = (data: { userAddress: string; typing: boolean }) => {
-      if (data.userAddress.toLowerCase() === otherUser.toLowerCase()) {
+      if (data.userAddress.toLowerCase() === normalizedOtherUser) {
         setOtherUserTyping(data.typing)
       }
     }
 
     // Listen for online/offline status
     const handleUserStatus = (data: { userAddress: string; status: 'online' | 'offline' }) => {
-      if (data.userAddress.toLowerCase() === otherUser.toLowerCase()) {
+      console.log(`[Chat] Status update for ${data.userAddress}: ${data.status}`)
+      if (data.userAddress.toLowerCase() === normalizedOtherUser) {
         setOtherUserOnline(data.status === 'online')
+        console.log(`[Chat] Other user ${normalizedOtherUser} is now ${data.status}`)
       }
     }
 
@@ -116,7 +125,7 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
   }, [socket, address, roomId, isTyping])
 
   const handleTyping = () => {
-    if (!socket || !address || !roomId) return
+    if (!socket || !address || !roomId || !socket.connected) return
     
     // Clear existing timeout
     if (typingTimeoutRef.current) {
@@ -126,14 +135,14 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
     // Send typing start if not already typing
     if (!isTyping) {
       setIsTyping(true)
-      socket.emit('typing-start', { roomId, userAddress: address })
+      socket.emit('typing-start', { roomId, userAddress: address.toLowerCase() })
     }
     
     // Set timeout to stop typing after 3 seconds of inactivity
     typingTimeoutRef.current = setTimeout(() => {
-      if (socket && address && roomId) {
+      if (socket && address && roomId && socket.connected) {
         setIsTyping(false)
-        socket.emit('typing-stop', { roomId, userAddress: address })
+        socket.emit('typing-stop', { roomId, userAddress: address.toLowerCase() })
       }
     }, 3000)
   }
@@ -141,10 +150,15 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
   const sendMessage = () => {
     if (!socket || !address || !inputMessage.trim() || !roomId) return
 
+    if (!socket.connected) {
+      alert('Not connected to chat server. Please wait...')
+      return
+    }
+
     // Stop typing indicator
     if (isTyping) {
       setIsTyping(false)
-      socket.emit('typing-stop', { roomId, userAddress: address })
+      socket.emit('typing-stop', { roomId, userAddress: address.toLowerCase() })
     }
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current)
@@ -153,10 +167,11 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
     const messageData = {
       roomId,
       message: inputMessage.trim(),
-      sender: address,
+      sender: address.toLowerCase(),
       timestamp: new Date().toISOString(),
     }
 
+    console.log('[Chat] Sending message:', messageData)
     socket.emit('chat-message', messageData)
     setInputMessage('')
   }

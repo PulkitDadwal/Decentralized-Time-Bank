@@ -142,3 +142,14 @@ The backend server provides:
 - `POST /api/listings` – Create new listing
 - `DELETE /api/listings/:cid` – Delete listing
 - `GET /api/chat/conversations/:userAddress` – Get user conversations
+
+## Testing Blockchain Features
+
+To test wallet connections, token transactions, and escrow features, see **[WALLET_TESTING_GUIDE.md](./WALLET_TESTING_GUIDE.md)**
+
+This includes:
+- MetaMask setup
+- Getting Sepolia testnet ETH
+- Deploying contracts
+- Minting TTK tokens
+- Testing escrow transactions

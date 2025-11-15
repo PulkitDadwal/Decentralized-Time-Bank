@@ -36,32 +36,71 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
   useEffect(() => {
     if (!socket || !address || !roomId) return
 
-    socket.emit('join-room', roomId, address)
+    const normalizedAddress = address.toLowerCase()
+    
+    const joinRoom = () => {
+      if (!socket.connected) {
+        console.log('[VideoCall] Socket not connected, waiting...')
+        return
+      }
+      // Notify server that user is online
+      socket.emit('user-online', normalizedAddress)
+      // Join room
+      socket.emit('join-room', roomId, normalizedAddress)
+      console.log(`[VideoCall] Joined room ${roomId} as ${normalizedAddress}`)
+    }
+    
+    // Join immediately if connected
+    if (socket.connected) {
+      joinRoom()
+    }
+    
+    // Rejoin on connect/reconnect
+    socket.on('connect', joinRoom)
 
     const handleCallStatus = (data: { status: CallStatus; sender: string }) => {
-      if (data.sender === address) return // Ignore own status updates
+      const normalizedSender = data.sender?.toLowerCase()
+      if (normalizedSender === normalizedAddress) {
+        console.log('[VideoCall] Ignoring own status update')
+        return // Ignore own status updates
+      }
+
+      console.log(`[VideoCall] Received call status: ${data.status} from ${normalizedSender}`)
 
       if (data.status === 'calling' && callStatus === 'idle') {
+        console.log('[VideoCall] Incoming call detected, setting status to ringing')
         setCallStatus('ringing')
         setIsInitiator(false)
       } else if (data.status === 'answered') {
+        console.log('[VideoCall] Call answered')
         setCallStatus('answered')
         startCallTimer()
         if (!isInitiator) {
           createAnswer()
         }
       } else if (data.status === 'ended') {
+        console.log('[VideoCall] Call ended by other party')
         endCall()
       }
     }
 
     const handleOffer = async (data: { offer: RTCSessionDescriptionInit; sender: string }) => {
-      if (data.sender === address) return
+      const normalizedSender = data.sender?.toLowerCase()
+      if (normalizedSender === normalizedAddress) {
+        console.log('[VideoCall] Ignoring own offer')
+        return
+      }
+      console.log('[VideoCall] Received offer from', normalizedSender)
       await handleReceivedOffer(data.offer)
     }
 
     const handleAnswer = async (data: { answer: RTCSessionDescriptionInit; sender: string }) => {
-      if (data.sender === address) return
+      const normalizedSender = data.sender?.toLowerCase()
+      if (normalizedSender === normalizedAddress) {
+        console.log('[VideoCall] Ignoring own answer')
+        return
+      }
+      console.log('[VideoCall] Received answer from', normalizedSender)
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
         // Start timer when call is connected (answer received)
@@ -73,7 +112,10 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
     }
 
     const handleIceCandidate = (data: { candidate: RTCIceCandidateInit; sender: string }) => {
-      if (data.sender === address) return
+      const normalizedSender = data.sender?.toLowerCase()
+      if (normalizedSender === normalizedAddress) {
+        return
+      }
       if (peerConnectionRef.current && data.candidate) {
         peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate))
       }
@@ -85,6 +127,7 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
     socket.on('webrtc-ice-candidate', handleIceCandidate)
 
     return () => {
+      socket.off('connect', joinRoom)
       socket.off('video-call-status', handleCallStatus)
       socket.off('webrtc-offer', handleOffer)
       socket.off('webrtc-answer', handleAnswer)
@@ -110,7 +153,17 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
   const startCall = async () => {
     if (!socket || !address || !roomId) return
 
+    if (!socket.connected) {
+      alert('Not connected to server. Please wait...')
+      return
+    }
+
     try {
+      // Ensure we're in the room before starting call
+      const normalizedAddress = address.toLowerCase()
+      socket.emit('join-room', roomId, normalizedAddress)
+      socket.emit('user-online', normalizedAddress)
+
       // Get user media
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       localStreamRef.current = stream
@@ -137,15 +190,16 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          socket.emit('webrtc-ice-candidate', { roomId, candidate: event.candidate, sender: address })
+          socket.emit('webrtc-ice-candidate', { roomId, candidate: event.candidate, sender: normalizedAddress })
         }
       }
 
       // Create and send offer
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      socket.emit('webrtc-offer', { roomId, offer, sender: address })
-      socket.emit('video-call-status', { roomId, status: 'calling', sender: address })
+      console.log('[VideoCall] Sending offer and call status')
+      socket.emit('webrtc-offer', { roomId, offer, sender: normalizedAddress })
+      socket.emit('video-call-status', { roomId, status: 'calling', sender: normalizedAddress })
 
       setCallStatus('calling')
       setIsInitiator(true)
@@ -172,6 +226,8 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
   const handleReceivedOffer = async (offer: RTCSessionDescriptionInit) => {
     if (!socket || !address || !roomId) return
 
+    const normalizedAddress = address.toLowerCase()
+
     try {
       // Get user media
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -199,7 +255,7 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          socket.emit('webrtc-ice-candidate', { roomId, candidate: event.candidate, sender: address })
+          socket.emit('webrtc-ice-candidate', { roomId, candidate: event.candidate, sender: normalizedAddress })
         }
       }
 
@@ -207,8 +263,9 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
-      socket.emit('webrtc-answer', { roomId, answer, sender: address })
-      socket.emit('video-call-status', { roomId, status: 'answered', sender: address })
+      console.log('[VideoCall] Sending answer')
+      socket.emit('webrtc-answer', { roomId, answer, sender: normalizedAddress })
+      socket.emit('video-call-status', { roomId, status: 'answered', sender: normalizedAddress })
 
       setCallStatus('answered')
       startCallTimer()
@@ -224,8 +281,10 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
   }
 
   const answerCall = () => {
-    if (callStatus === 'ringing') {
-      socket?.emit('video-call-status', { roomId, status: 'answered', sender: address })
+    if (callStatus === 'ringing' && socket && roomId && address) {
+      const normalizedAddress = address.toLowerCase()
+      console.log('[VideoCall] Answering call')
+      socket.emit('video-call-status', { roomId, status: 'answered', sender: normalizedAddress })
       // The actual WebRTC answer is handled in handleReceivedOffer
     }
   }
@@ -274,7 +333,8 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
 
     // Notify other user
     if (socket && roomId && address) {
-      socket.emit('video-call-status', { roomId, status: 'ended', sender: address })
+      const normalizedAddress = address.toLowerCase()
+      socket.emit('video-call-status', { roomId, status: 'ended', sender: normalizedAddress })
     }
 
     setCallStatus('ended')
@@ -285,7 +345,8 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
 
   const rejectCall = () => {
     if (socket && roomId && address) {
-      socket.emit('video-call-status', { roomId, status: 'ended', sender: address })
+      const normalizedAddress = address.toLowerCase()
+      socket.emit('video-call-status', { roomId, status: 'ended', sender: normalizedAddress })
     }
     endCall()
   }

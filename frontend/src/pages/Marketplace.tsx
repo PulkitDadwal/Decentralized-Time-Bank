@@ -4,14 +4,41 @@ import { useListingsFeed } from '../state/listings'
 import { CONTRACTS } from '../lib/contracts'
 import { Chat } from '../components/Chat'
 import { VideoCall } from '../components/VideoCall'
+import { useSocket, createRoomId } from '../hooks/useSocket'
 
 export default function Marketplace() {
   const { address } = useAccount()
   const { listings, loading, error, refresh } = useListingsFeed()
+  const { socket } = useSocket()
   const [deleting, setDeleting] = React.useState<string | null>(null)
   const [chatOpen, setChatOpen] = React.useState<{ owner: string; title: string } | null>(null)
   const [videoCallOpen, setVideoCallOpen] = React.useState<{ owner: string; title: string } | null>(null)
+  const [incomingCall, setIncomingCall] = React.useState<{ from: string; title: string } | null>(null)
   const backend = CONTRACTS.sepolia.backendBaseUrl
+
+  // Listen for incoming video calls globally
+  React.useEffect(() => {
+    if (!socket || !address) return
+
+    const handleCallStatus = (data: { status: string; sender: string }) => {
+      if (data.status === 'calling' && data.sender.toLowerCase() !== address.toLowerCase()) {
+        // Find the listing for this caller
+        const callerListing = listings.find(l => l.owner?.toLowerCase() === data.sender.toLowerCase())
+        setIncomingCall({
+          from: data.sender,
+          title: callerListing?.title || 'Service Provider'
+        })
+      } else if (data.status === 'ended' || data.status === 'answered') {
+        setIncomingCall(null)
+      }
+    }
+
+    socket.on('video-call-status', handleCallStatus)
+
+    return () => {
+      socket.off('video-call-status', handleCallStatus)
+    }
+  }, [socket, address, listings])
 
   const handleDelete = async (cid: string, owner: string) => {
     if (!address) {
@@ -172,6 +199,45 @@ export default function Marketplace() {
           listingTitle={videoCallOpen.title}
           onClose={() => setVideoCallOpen(null)}
         />
+      )}
+
+      {/* Incoming Call Notification */}
+      {incomingCall && !videoCallOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 max-w-md w-full">
+            <div className="text-center">
+              <div className="animate-pulse text-4xl mb-4">📞</div>
+              <h3 className="text-xl font-semibold mb-2">Incoming Video Call</h3>
+              <p className="text-neutral-400 mb-4">{incomingCall.title}</p>
+              <p className="text-xs text-neutral-500 mb-6">
+                From: {incomingCall.from.slice(0, 6)}...{incomingCall.from.slice(-4)}
+              </p>
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => {
+                    setVideoCallOpen({ owner: incomingCall.from, title: incomingCall.title })
+                    setIncomingCall(null)
+                  }}
+                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-full"
+                >
+                  Answer
+                </button>
+                <button
+                  onClick={() => {
+                    if (socket && address) {
+                      const roomId = createRoomId(address, incomingCall.from)
+                      socket.emit('video-call-status', { roomId, status: 'ended', sender: address.toLowerCase() })
+                    }
+                    setIncomingCall(null)
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full"
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
