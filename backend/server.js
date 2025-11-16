@@ -540,7 +540,10 @@ io.on("connection", (socket) => {
     
     // INSTANT delivery via socket.io (real-time) - broadcast to ALL users in room including sender
     console.log(`[Chat] Broadcasting message to room ${roomId} from ${normalizedSender}`);
+    console.log(`[Chat] Room ${roomId} has ${io.sockets.adapter.rooms.get(roomId)?.size || 0} connected users`);
+    // Broadcast to all users in the room (including sender for consistency)
     io.to(roomId).emit("chat-message", messageObj);
+    console.log(`[Chat] ✅ Message broadcasted to room ${roomId}`);
     
     // Save to MongoDB in background (fast and reliable, doesn't block delivery)
     saveChatMessageToDB(roomId, messageObj).then(success => {

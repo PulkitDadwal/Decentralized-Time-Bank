@@ -18,14 +18,21 @@ export default function Marketplace() {
 
   // Listen for incoming video calls globally - improved with roomId matching
   React.useEffect(() => {
-    if (!socket || !address) return
+    if (!socket || !address) {
+      console.log('[Marketplace] Cannot listen for calls:', { socket: !!socket, address: !!address })
+      return
+    }
+
+    console.log('[Marketplace] Setting up video call listener')
 
     const handleCallStatus = (data: { status: string; sender: string; roomId?: string }) => {
+      console.log('[Marketplace] 📞 Received video-call-status:', data)
       const normalizedSender = data.sender?.toLowerCase()
       const normalizedAddress = address.toLowerCase()
       
       // Only handle calls meant for this user
       if (normalizedSender === normalizedAddress) {
+        console.log('[Marketplace] Ignoring own call status update')
         return // Ignore own status updates
       }
       
@@ -33,20 +40,23 @@ export default function Marketplace() {
       if (data.roomId) {
         const expectedRoomId = createRoomId(address, normalizedSender)
         if (data.roomId !== expectedRoomId) {
-          console.log(`[VideoCall] Ignoring call from different room: ${data.roomId} vs ${expectedRoomId}`)
+          console.log(`[Marketplace] ⚠️ Ignoring call from different room: ${data.roomId} vs ${expectedRoomId}`)
           return
         }
+        console.log(`[Marketplace] ✅ Room ID matches: ${data.roomId}`)
       }
       
-      console.log(`[VideoCall] Received call status: ${data.status} from ${normalizedSender}`)
+      console.log(`[Marketplace] 📞 Processing call status: ${data.status} from ${normalizedSender}`)
       
       if (data.status === 'calling') {
+        console.log('[Marketplace] 🔔 Incoming call detected!')
         // Find the listing for this caller
         const callerListing = listings.find(l => l.owner?.toLowerCase() === normalizedSender)
         setIncomingCall({
           from: normalizedSender,
           title: callerListing?.title || 'Service Provider'
         })
+        console.log('[Marketplace] Set incoming call state')
         // Play notification sound (optional)
         try {
           const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGWi77+efTRAMUKfj8LZjHAY4kdfyzHksBSR3x/Dej0AKFF606euoVRQKRp/g8r5sIQUrgc7y2Yk2CBlou+/nn00QDFCn4/C2YxwGOJHX8sx5LAUkd8fw3o9AChRetOnrqFUUCkaf4PK+bCEFK4HO8tmJNggZaLvv559NE')
@@ -56,13 +66,16 @@ export default function Marketplace() {
           // Ignore audio errors
         }
       } else if (data.status === 'ended' || data.status === 'answered') {
+        console.log('[Marketplace] Call ended or answered, clearing incoming call')
         setIncomingCall(null)
       }
     }
 
     socket.on('video-call-status', handleCallStatus)
+    console.log('[Marketplace] ✅ Registered video-call-status listener')
 
     return () => {
+      console.log('[Marketplace] Cleaning up video call listener')
       socket.off('video-call-status', handleCallStatus)
     }
   }, [socket, address, listings])

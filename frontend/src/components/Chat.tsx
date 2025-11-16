@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
 import { useSocket, createRoomId } from '../hooks/useSocket'
+import { CONTRACTS } from '../lib/contracts'
+
+const socketUrl = CONTRACTS.sepolia.backendBaseUrl || 'http://localhost:4000'
 
 interface ChatMessage {
   id: string
@@ -29,52 +32,70 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
   const roomId = address && otherUser ? createRoomId(address, otherUser) : ''
 
   useEffect(() => {
-    if (!socket || !address || !roomId) return
+    if (!socket || !address || !roomId) {
+      console.log('[Chat] Missing requirements:', { socket: !!socket, address: !!address, roomId })
+      return
+    }
     
     const normalizedOtherUser = otherUser.toLowerCase()
     const normalizedAddress = address.toLowerCase()
     
+    console.log(`[Chat] Setting up chat for room: ${roomId}`)
+    console.log(`[Chat] My address: ${normalizedAddress}, Other user: ${normalizedOtherUser}`)
+    
     const joinRoom = () => {
       if (!socket.connected) {
-        console.log('[Chat] Socket not connected, waiting...')
+        console.log('[Chat] ⚠️ Socket not connected, waiting...')
         return
       }
+      console.log(`[Chat] ✅ Socket connected, joining room ${roomId}`)
       // Notify server that user is online
       socket.emit('user-online', normalizedAddress)
+      console.log(`[Chat] Emitted 'user-online' for ${normalizedAddress}`)
       // Join room
       socket.emit('join-room', roomId, normalizedAddress)
-      console.log(`[Chat] Joined room ${roomId} as ${normalizedAddress}`)
+      console.log(`[Chat] Emitted 'join-room' for room ${roomId} as ${normalizedAddress}`)
     }
     
     // Join immediately if connected
     if (socket.connected) {
+      console.log('[Chat] Socket already connected, joining room immediately')
       joinRoom()
+    } else {
+      console.log('[Chat] Socket not connected yet, will join on connect')
     }
     
     // Rejoin on connect/reconnect
-    socket.on('connect', joinRoom)
+    socket.on('connect', () => {
+      console.log('[Chat] Socket connected event received, joining room')
+      joinRoom()
+    })
 
     // Listen for chat history
     const handleHistory = (history: ChatMessage[]) => {
-      console.log(`[Chat] Received ${history.length} messages from history`)
+      console.log(`[Chat] 📜 Received ${history.length} messages from history`)
       // Replace messages with history (fresh load)
-      setMessages(history.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()))
+      const sorted = history.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      setMessages(sorted)
+      // Scroll to bottom after loading history
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
+      }, 100)
     }
 
     // Listen for new messages (real-time) - optimized for instant display
     const handleMessage = (message: ChatMessage) => {
-      console.log(`[Chat] Received real-time message:`, message)
+      console.log(`[Chat] 💬 Received real-time message:`, message)
       setMessages((prev) => {
         // Prevent duplicate messages by ID
         if (prev.some(m => m.id === message.id)) {
-          console.log(`[Chat] Duplicate message detected, skipping: ${message.id}`)
+          console.log(`[Chat] ⚠️ Duplicate message detected, skipping: ${message.id}`)
           return prev
         }
-        // Add new message immediately (no sorting needed if messages come in order)
-        // Only sort if timestamp is out of order
+        // Add new message immediately
         const updated = [...prev, message]
         const sorted = updated.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-        console.log(`[Chat] Message added instantly, total messages: ${sorted.length}`)
+        console.log(`[Chat] ✅ Message added instantly, total messages: ${sorted.length}`)
         return sorted
       })
       // Auto-scroll to bottom when new message arrives
@@ -158,11 +179,15 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
     }, 3000)
   }
 
-  const sendMessage = () => {
-    if (!socket || !address || !inputMessage.trim() || !roomId) return
+    const sendMessage = () => {
+    if (!socket || !address || !inputMessage.trim() || !roomId) {
+      console.log('[Chat] ⚠️ Cannot send message:', { socket: !!socket, address: !!address, message: !!inputMessage.trim(), roomId })
+      return
+    }
 
     if (!socket.connected) {
-      alert('Not connected to chat server. Please wait...')
+      console.error('[Chat] ❌ Not connected to chat server!')
+      alert('Not connected to chat server. Please wait for connection...')
       return
     }
 
@@ -182,9 +207,20 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
       timestamp: new Date().toISOString(),
     }
 
-    console.log('[Chat] Sending message:', messageData)
+    console.log('[Chat] 📤 Sending message:', messageData)
     socket.emit('chat-message', messageData)
     setInputMessage('')
+    
+    // Optimistically add message to UI immediately (will be confirmed by server response)
+    const tempMessage: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      ...messageData,
+      type: 'text',
+    }
+    setMessages((prev) => [...prev, tempMessage])
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 50)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -329,7 +365,13 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
             </button>
           </div>
           {!connected && (
-            <p className="text-xs text-yellow-400 mt-2">Connecting to chat server...</p>
+            <div className="text-xs text-yellow-400 mt-2 space-y-1">
+              <p>⚠️ Connecting to chat server...</p>
+              <p className="text-xs text-neutral-500">Server: {socketUrl || 'Not configured'}</p>
+            </div>
+          )}
+          {connected && (
+            <p className="text-xs text-green-400 mt-2">✅ Connected to chat server</p>
           )}
         </div>
       </div>
