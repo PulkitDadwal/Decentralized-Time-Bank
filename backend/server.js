@@ -12,17 +12,19 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
 
 app.use(express.json());
 // CORS: Use environment variable in production, allow all in development
 const corsOrigin = process.env.CORS_ORIGIN || "*";
 app.use(cors({ origin: corsOrigin }));
+
+// Socket.io CORS: Use same origin as Express CORS
+const io = new Server(server, {
+  cors: {
+    origin: corsOrigin,
+    methods: ["GET", "POST"]
+  }
+});
 
 // Test endpoint to verify backend is accessible from other computers
 app.get("/api/test", (req, res) => {
