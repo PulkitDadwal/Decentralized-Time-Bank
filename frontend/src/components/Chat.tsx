@@ -29,6 +29,7 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
   const [otherUserOnline, setOtherUserOnline] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<number | null>(null)
+  const lastSentMessageRef = useRef<{ message: string; sender: string; timestamp: string } | null>(null)
   const roomId = address && otherUser ? createRoomId(address, otherUser) : ''
 
   useEffect(() => {
@@ -89,9 +90,41 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
       setMessages((prev) => {
         // Prevent duplicate messages by ID
         if (prev.some(m => m.id === message.id)) {
-          console.log(`[Chat] ⚠️ Duplicate message detected, skipping: ${message.id}`)
+          console.log(`[Chat] ⚠️ Duplicate message detected by ID, skipping: ${message.id}`)
           return prev
         }
+        
+        // Check if this is a duplicate of our own optimistic message
+        // Match by sender, message content, and timestamp (within 2 seconds)
+        const lastSent = lastSentMessageRef.current
+        if (lastSent && 
+            message.sender.toLowerCase() === lastSent.sender.toLowerCase() &&
+            message.message === lastSent.message) {
+          const timeDiff = Math.abs(new Date(message.timestamp).getTime() - new Date(lastSent.timestamp).getTime())
+          if (timeDiff < 2000) {
+            // This is our own message coming back - replace temp message with real one
+            console.log(`[Chat] 🔄 Replacing temp message with server message: ${message.id}`)
+            const updated = prev.map(m => 
+              m.id.startsWith('temp-') && 
+              m.sender.toLowerCase() === message.sender.toLowerCase() &&
+              m.message === message.message
+                ? message
+                : m
+            )
+            // Remove any remaining duplicates
+            const seen = new Set<string>()
+            const deduped = updated.filter(m => {
+              const key = `${m.sender}_${m.message}_${m.timestamp}`
+              if (seen.has(key)) return false
+              seen.add(key)
+              return true
+            })
+            const sorted = deduped.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+            lastSentMessageRef.current = null // Clear after replacement
+            return sorted
+          }
+        }
+        
         // Add new message immediately
         const updated = [...prev, message]
         const sorted = updated.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -210,6 +243,13 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
     }
 
     console.log('[Chat] 📤 Sending message to server:', { roomId, message: messageText.substring(0, 50) + '...', sender: messageData.sender })
+    
+    // Store last sent message for duplicate detection
+    lastSentMessageRef.current = {
+      message: messageText,
+      sender: address.toLowerCase(),
+      timestamp: messageData.timestamp,
+    }
     
     // Optimistically add message to UI immediately (will be confirmed by server response)
     const tempMessage: ChatMessage = {

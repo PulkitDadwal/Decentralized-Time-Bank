@@ -691,15 +691,19 @@ io.on("connection", (socket) => {
     const userCount = room ? room.size : 0;
     console.log(`[VideoCall] 👥 Room ${roomId} has ${userCount} connected user(s)`);
     
-    if (userCount === 0) {
-      console.warn(`[VideoCall] ⚠️ WARNING: Room ${roomId} has NO connected users! Call notification will not be delivered.`);
-      console.warn(`[VideoCall] ⚠️ The other user must be on the Marketplace page to receive call notifications.`);
+    // For 'calling' status, broadcast to ALL connected sockets (not just room)
+    // This ensures users receive call notifications even if they haven't joined the room yet
+    // The frontend GlobalVideoCallListener will filter by roomId
+    if (status === 'calling') {
+      const totalSockets = io.sockets.sockets.size;
+      console.log(`[VideoCall] 📢 Broadcasting 'calling' status to ALL ${totalSockets} connected socket(s) for global notification`);
+      io.emit("video-call-status", { status, sender: normalizedSender, roomId });
+      console.log(`[VideoCall] ✅ Call notification broadcasted globally (frontend will filter by roomId)`);
+    } else {
+      // For other statuses (answered, ended), only send to room members
+      io.to(roomId).emit("video-call-status", { status, sender: normalizedSender, roomId });
+      console.log(`[VideoCall] ✅ Call status broadcasted to ${userCount} user(s) in room ${roomId}`);
     }
-    
-    // Broadcast to ALL users in room (including sender for consistency, frontend will filter)
-    // Include roomId in the response so frontend can verify
-    io.to(roomId).emit("video-call-status", { status, sender: normalizedSender, roomId });
-    console.log(`[VideoCall] ✅ Call status broadcasted to ${userCount} user(s) in room ${roomId}`);
   });
 
   // Disconnect
