@@ -28,7 +28,7 @@ export function Chat({ otherUser, listingTitle, onClose }: ChatProps) {
   const [otherUserTyping, setOtherUserTyping] = useState(false)
   const [otherUserOnline, setOtherUserOnline] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const typingTimeoutRef = useRef<number | null>(null)
   const roomId = address && otherUser ? createRoomId(address, otherUser) : ''
 
   useEffect(() => {

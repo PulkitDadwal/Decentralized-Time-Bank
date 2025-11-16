@@ -22,7 +22,7 @@ export function VideoCall({ otherUser, listingTitle, onClose }: VideoCallProps) 
   const localStreamRef = useRef<MediaStream | null>(null)
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const callStartTimeRef = useRef<number | null>(null)
-  const durationIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const durationIntervalRef = useRef<number | null>(null)
   const roomId = address && otherUser ? createRoomId(address, otherUser) : ''
 
   // WebRTC configuration (using free STUN servers)
